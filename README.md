@@ -1,126 +1,266 @@
-🛡️ devX ZippGo - Return Fraud Detection E-Commerce Prototype
-devX ZippGo is a hackathon-ready e-commerce fraud prevention prototype that detects fraud from both customers and sellers during ordering, delivery, return pickup, and refund approval.
+# ZippGo devX - Return Fraud Prevention E-Commerce Prototype
 
-The project shows how an online shopping platform can reduce return fraud using OTP delivery proof, product photo verification, bill QR validation, category-based return policies, food return video proof, seller integrity checks, and admin monitoring.
+ZippGo devX is a hackathon-ready e-commerce prototype that prevents return fraud using role-based proof collection, OTP delivery validation, product-specific return policies, bill QR verification, seller integrity checks, and a risk scoring dashboard.
 
-🚨 Problem
-E-commerce platforms face losses because of:
+The project demonstrates how fraud can happen from both sides of an e-commerce marketplace: customers may abuse returns, while sellers may dispatch wrong, used, incomplete, or fake products. ZippGo devX solves this by collecting evidence at ordering, seller proof upload, delivery, return request, return pickup, and admin review stages.
 
-🧥 Wardrobing fraud
-📦 Fake damage claims
-🧾 Receipt manipulation
-🚚 Item not received abuse
-💳 Friendly fraud
-🏪 Seller-side fraud
-❌ Wrong product dispatch
-🛍️ Fake listings
-🎧 Missing accessories
-🍱 Fake food return proof
+## GitHub Short Description
 
-Treating every return the same either increases fraud or creates problems for genuine customers.
+Role-based e-commerce return fraud prevention prototype with user shopping, seller onboarding, delivery OTP proof, bill QR validation, return verification, seller fraud detection, and admin risk dashboard.
 
-💡 Solution
-devX ZippGo uses a role-based fraud prevention system with separate portals for:
+## Key Features
 
-👤 Customer
-🛡️ Admin
-🚚 Delivery partner
-🏪 Seller
+- User commerce site with product search, cart, wishlist, checkout, orders, and returns
+- Separate portals for user, admin, seller, and delivery partner
+- Admin order confirmation before delivery partner receives the task
+- OTP-based delivery verification
+- Delivery partner product photo and package photo proof
+- Automatic bill QR generation for every order
+- Return bill upload with QR extraction and stored QR matching
+- Dynamic category-based return policies
+- Side-by-side delivery image vs return image comparison
+- Delivery partner return approval or cancellation
+- Customer fraud risk scoring and fraud type detection
+- Seller Integrity Dashboard for seller-side fraud detection
+- Food and beverage return proof with app-only video verification simulation
+- LocalStorage-only prototype, no backend required
+- Responsive premium UI with light, dark, and system themes
 
-Each return is checked using product-specific rules instead of one common return policy.
+## Tech Stack
 
-✨ Main Features
-👤 Customer Portal
-Users can sign up, log in, browse products, search products, add items to cart, add products to wishlist, buy products, place orders, track orders, request returns after delivery, upload bill proof, record food return video proof, and view return status.
+- React
+- Vite
+- React Router DOM
+- Lucide React icons
+- Modern CSS
+- LocalStorage for mock data persistence
 
-🛡️ Admin Portal
-Admin can confirm customer orders, view delivery status, monitor return cases, view fraud signals, check uploaded delivery proof images, review food return video proof, approve food refunds, and monitor seller integrity.
+## Main Portals
 
-🚚 Delivery Partner Portal
-Delivery partner has separate delivery and return sections. They can view admin-confirmed orders, verify OTP, upload product delivery photo, complete delivery, view return pickup requests, verify original OTP during return, compare delivery image with return image, and approve or cancel returns.
+### 1. User Portal
 
-🏪 Seller Portal
-Sellers can register their shop, submit shop details, provide GST and pickup location, and join the platform. Admin can monitor seller integrity and seller-side fraud signals.
+Users can:
 
-🧠 Fraud Detection Logic
-🧥 Wardrobing Fraud
-Detected when fashion tags are missing, removed, or damaged; fashion return is after the allowed window; electronics show high usage; tools show scratches, dirt, or heavy usage; or the product looks temporarily used.
+- Sign up and log in using phone number and password
+- Browse products
+- Search and filter products
+- Add products to cart or wishlist
+- Buy products
+- Track order status
+- View delivery OTP
+- View delivery proof and bill QR
+- Request returns only after delivery
+- Upload bill during return for QR verification
+- View fraud detection or return result
 
-📦 Item Not Received Abuse
-Detected when the customer claims “item not received” but delivery proof exists, OTP was verified, delivery timestamp exists, and delivery product photo exists.
+### 2. Admin Portal
 
-🛠️ Fake Damage Claim
-Detected when the customer claims the product is damaged, but delivery-time image shows good condition and return-time image shows mismatch or damage.
+Admins can:
 
-🧾 Receipt Manipulation
-Detected when receipt ID, QR code, hash, price, date, or product details do not match the original order bill.
+- Confirm orders placed by users
+- View registered customers
+- View delivered and waiting orders
+- View return cases and fraud signals
+- View bill QR records
+- Search order proof by order ID
+- Review delivery image, return image, seller proof, and risk score
+- Monitor seller-side fraud through the Seller Integrity Dashboard
 
-🌐 Reverse Image Fraud
-Detected when uploaded proof looks reused, copied from online sources, or appears to be screen-based proof.
+### 3. Delivery Partner Portal
 
-🍱 Food Return Video Fraud
-Food returns require app-only video proof. The app checks camera capture, 2-3 second video duration, tilt/motion challenge, torch challenge, metadata, screen replay signals, deepfake-like signals, and same-product confidence.
+Delivery partners can:
 
-If the video proof passes, it is sent to admin and delivery partner. Refund starts only after approval.
+- See only admin-confirmed delivery orders
+- Send or verify OTP
+- Upload product delivery photo
+- Upload package photo
+- Fill delivery condition checklist
+- Complete delivery only after all required details are entered and Continue is clicked
+- See return pickup requests separately
+- Verify original delivery OTP during return pickup
+- Compare delivery proof with return product proof
+- Approve return only if product verification matches
+- Cancel return if image, condition, OTP, or category rules fail
 
-📦 Category-Based Return Policy
-👗 Fashion
-Return window is 12 hours. Valid reasons are size issue, color mismatch, and damage. Tag must be attached. Product should not have stains, smell, perfume, wrinkles, or wear signs. Delivery image and return image must match.
+### 4. Seller Portal
 
-💻 Electronics
-Return is allowed only for genuine issue or external damage. Serial number must match. Usage and activation should be acceptable. Accessories must be complete. Product image must match delivery proof.
+Sellers can:
 
-🧰 Tools
-Tools are checked for scratches, dust, oil, damage, missing parts, and working condition during delivery and return.
+- Register shop details
+- Join the marketplace
+- Search delivered order by order ID
+- Upload package proof and open-box product proof
+- Help admins and delivery partners verify whether a returned product matches the delivered product
 
-🍔 Food & Beverages
-Food returns require app-only video proof. The system checks motion, torch, metadata, same-product proof, and screen-fake signals. Refund is initiated only after approval.
+## Dynamic Return Policy System
 
-🧰 Tech Stack
-⚛️ React
-⚡ Vite
-🧭 React Router DOM
-🎨 CSS
-🖼️ Lucide React Icons
-💾 LocalStorage mock database
-🚫 No backend required
+### Fashion
 
-💾 Data Storage
-The prototype stores data in browser LocalStorage:
+Applies to dress, shoes, bags, and travel items.
 
-👤 Users
-📦 Orders
-↩️ Returns
-🛒 Cart
-❤️ Wishlist
-🏪 Sellers
-🛡️ Admin session
-🎨 Theme preference
+- Return window: 12 hours
+- Valid reasons: size issue, color mismatch, damage
+- Delivery partner must capture delivery image
+- Return partner must compare returned product with delivery image
+- Return is successful only if the product matches
 
-🔄 Demo Flow
-1. 🛒 User Orders Product
-User logs in, selects a product, clicks Buy Now, places the order, and the order goes to admin confirmation.
+### Electronics
 
-2. 🛡️ Admin Confirms Order
-Admin opens the admin portal, confirms the order, and the order appears in the delivery partner portal.
+Applies to oven, mobile accessories, laptops, smart watches, cameras, and similar electronics.
 
-3. 🚚 Delivery Partner Completes Delivery
-Delivery partner verifies OTP, uploads product photo, clicks continue, and the customer order status becomes Delivered.
+- Return allowed only for external damage
+- Delivery partner must verify serial number
+- Delivery and return images are compared
+- Usage and activation condition are checked
+- Returned product must match original delivery
 
-4. ↩️ User Requests Return
-User opens the return page, selects a delivered product, enters return reason, uploads bill proof, and for food items records app-only video proof.
+### Tools
 
-5. ✅ Return Verification
-For normal products, delivery partner compares delivery image and return image, checks OTP, verifies category rules, and approves or cancels return.
+Applies to home appliances, kitchen items, furniture, sports items, and working tools.
 
-For food items, video proof is sent to admin and delivery partner. Refund starts only after approval.
+- Scratches and physical damage are checked
+- Working condition is verified during delivery and return
+- Heavy usage marks can trigger rejection or investigation
 
-🎯 Project Purpose
-This project is built for hackathons and demos. It shows how return fraud can be reduced using delivery proof, OTP verification, product-specific return rules, bill QR validation, image comparison, food video verification, seller fraud detection, and admin approval workflows.
+### Food & Beverages
 
-🚀 Future Improvements
-Real backend database
-Real OTP service
-Real QR scanning
-Payment gateway integration
-Delivery tracking API
+Food returns are handled differently to protect genuine customers and prevent fake proof.
+
+- User must capture app-only live proof
+- File upload is disabled for high-risk proof mode
+- Metadata, timestamp, motion, torch challenge, screen fake, and reverse-image signals are simulated
+- If checks pass, refund is approved within 12 hours
+- If signals are suspicious, the case goes to additional verification or manual review
+
+## Fraud Types Detected
+
+- Wardrobing Fraud
+- Item Not Received Abuse
+- Fake Damage Claim
+- Receipt Manipulation
+- Friendly Fraud
+- Fraud Ring
+- Reverse Image Match Fraud
+- Food Return Video Fraud
+- Wrong Product or Random Proof Fraud
+- Seller-side fraud such as wrong dispatch, fake listing, missing accessories, invoice manipulation, fake shipment, fake reviews, and unfair return denial
+
+## Risk Score Rules
+
+The mock fraud engine calculates a risk score from triggered signals.
+
+- 0-30: Auto Approve
+- 31-70: Manual Review
+- 71+: Reject / Investigate
+
+Example signals:
+
+- Delivery proof missing
+- OTP not verified
+- Return pickup OTP mismatch
+- Receipt or bill QR mismatch
+- Product image mismatch
+- Fashion tag missing
+- Electronics serial mismatch
+- High product usage
+- Tool scratches or dirt
+- Reverse image lookup matched online/reused proof
+
+## Order Flow
+
+1. User signs up or logs in.
+2. User adds product to cart or clicks Buy Now.
+3. User places order from checkout.
+4. System generates a unique bill QR for the order.
+5. Admin confirms the order.
+6. Delivery partner receives the delivery task.
+7. Delivery partner verifies OTP, uploads product photo, uploads package photo, and fills checklist.
+8. Delivery partner clicks Continue.
+9. Order moves to Delivered section.
+10. User can request return only after delivery.
+
+## Return Flow
+
+1. User opens Return Center.
+2. User selects a delivered order.
+3. User uploads bill or invoice.
+4. System extracts/generates QR from uploaded bill.
+5. Uploaded bill QR is matched with stored order bill QR.
+6. If QR does not match, return submission is blocked.
+7. If QR matches, return request is created.
+8. Delivery partner visits user for pickup verification.
+9. Delivery partner re-enters original delivery OTP.
+10. Delivery partner compares delivery image with return image.
+11. Delivery partner completes product category checklist.
+12. Return is approved, cancelled, or sent for investigation.
+
+## Run Locally
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Start development server:
+
+```bash
+npm run dev
+```
+
+Build production files:
+
+```bash
+npm run build
+```
+
+Preview production build:
+
+```bash
+npm run preview
+```
+
+Default local URL:
+
+```text
+http://127.0.0.1:5173/
+```
+
+## Admin Login
+
+Open the admin portal from the landing page and enter the configured demo admin password from the source code.
+
+## Project Structure
+
+```text
+src/
+  App.jsx                 Main routes, portals, flows, and UI components
+  main.jsx                React entry point
+  styles.css              App styling and themes
+  data/
+    products.js           Product data, categories, delivery estimates
+  utils/
+    fraud.js              Customer return fraud risk scoring
+    sellerFraud.js        Seller fraud scoring logic
+    storage.js            LocalStorage helpers and formatting
+public/
+  assets/                 Static assets
+```
+
+## Why This Project Matters
+
+Return fraud damages both customers and sellers. Genuine customers need fast and fair refunds, while retailers need protection from wardrobing, fake damage claims, fake receipts, INR abuse, seller dispatch fraud, and organized fraud rings.
+
+ZippGo devX shows a practical way to reduce fraud without punishing honest users: collect proof at every important checkpoint, apply product-specific rules, verify delivery with OTP, validate bill QR during return, and explain every risk decision clearly to admins.
+
+## Future Scope
+
+- Real backend with authentication and database
+- Real OTP SMS integration
+- Real QR extraction from uploaded invoices
+- Real image comparison and reverse image lookup APIs
+- Delivery partner mobile app
+- Seller dispatch audit workflow
+- Payment gateway and refund automation
+- ML-based fraud ring detection
+
