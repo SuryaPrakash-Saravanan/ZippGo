@@ -37,7 +37,7 @@ const SELLERS_KEY = 'devx_v3_registered_sellers';
 const ADMIN_KEY = 'devx_v3_admin_auth';
 const LOCATION_KEY = 'devx_v3_location';
 const RESET_KEY = 'devx_v3_storage_reset_done';
-const ORDERS_RETURNS_RESET_KEY = 'devx_v3_orders_returns_reset_20260430';
+const ORDERS_RETURNS_RESET_KEY = 'devx_v3_orders_returns_reset_20260430_clean_orders_returns_v3';
 const THEME_KEY = 'devx_v3_theme';
 const SHOPSPHERE_BUY_KEY = 'devx_v3_shopsphere_buy';
 
@@ -96,6 +96,7 @@ function getPickupChecklist(product = {}) {
 
 function getRefundOutcome(returnCase) {
   if (returnCase?.result?.decision === 'Refund Approved' || returnCase?.status?.includes('Refund approved')) return 'Money will be refunded within 12 hours';
+  if (returnCase?.status?.includes('Food proof submitted')) return 'Food video proof sent to admin and ZippGo. Refund starts only after approval.';
   if (!returnCase?.deliveryPartnerChecks) return 'Pending pickup inspection';
   if (returnCase.partnerDecision === 'Cancelled') return 'Return rejected';
   if (returnCase.result?.decision === 'Reject / Investigate') return 'Return rejected or investigation hold';
@@ -287,7 +288,7 @@ function pendingReturnResult() {
 function foodLiveReturnResult(analysis) {
   const score = analysis?.riskScore ?? 100;
   const level = score <= 30 ? 'Low' : score <= 70 ? 'Medium' : 'High';
-  const decision = analysis?.reverseImageMatch || analysis?.deepfakeSuspected ? 'Reject / Investigate' : (level === 'Low' && analysis?.productMatchOk ? 'Refund Approved' : level === 'Medium' ? 'Additional Verification Required' : 'Manual Review Required');
+  const decision = analysis?.reverseImageMatch || analysis?.deepfakeSuspected ? 'Reject / Investigate' : (level === 'Low' && analysis?.productMatchOk ? 'Food Proof Passed - Awaiting Approval' : level === 'Medium' ? 'Additional Verification Required' : 'Manual Review Required');
   const signals = [];
   if (analysis?.metadataIssue) signals.push({ points: 20, label: 'Metadata issue found in app-only proof video', fraudType: 'Food Return Video Fraud' });
   if (!analysis?.motionOk) signals.push({ points: 30, label: 'Tilt/depth motion was too low during the 2-3 second video', fraudType: 'Food Return Video Fraud' });
@@ -576,6 +577,10 @@ function reverseImageRejectResult(lookup) {
   };
 }
 
+function compactImageData(value, maxLength = 420000) {
+  return typeof value === 'string' && value.length <= maxLength ? value : '';
+}
+
 function isDeliveredOrder(order = {}) {
   return (
     order.status === 'Delivered' ||
@@ -696,6 +701,12 @@ function saveAdminConfirmedOrder(orderId) {
   writeStore(ORDERS_KEY, updatedOrders);
   window.dispatchEvent(new CustomEvent('devx-store-change', { detail: { key: ORDERS_KEY, value: updatedOrders } }));
   return { updatedOrders, confirmedOrder };
+}
+
+function getStoredDeliveryPhoto(order = {}, product = {}) {
+  const storedOrders = readStore(ORDERS_KEY, []);
+  const storedOrder = Array.isArray(storedOrders) ? storedOrders.find((item) => item.id === order.id) : null;
+  return storedOrder?.deliveryProof?.deliveryPhoto || order.deliveryProof?.deliveryPhoto || '';
 }
 
 function orderDisplayStatus(order = {}) {
@@ -834,10 +845,12 @@ function clearPreviousOrdersAndReturnsOnce() {
   [
     ORDERS_KEY,
     RETURNS_KEY,
+    SHOPSPHERE_BUY_KEY,
     'trustkart_orders',
     'trustkart_returns',
     'devx_v2_orders',
-    'devx_v2_returns'
+    'devx_v2_returns',
+    'devx_v2_shopsphere_buy'
   ].forEach((key) => localStorage.removeItem(key));
   localStorage.setItem(ORDERS_RETURNS_RESET_KEY, 'true');
 }
@@ -1009,7 +1022,7 @@ function PortalShell({ type = 'user', children }) {
 function LandingPage() {
   const [users] = useLocalState(USERS_KEY, []);
   const [orders] = useLocalState(ORDERS_KEY, []);
-  const [returns] = useLocalState(RETURNS_KEY, []);
+  const [returns, setReturns] = useLocalState(RETURNS_KEY, []);
   const riskSurvey = useMemo(() => buildLiveRiskSurveyMetrics(users, orders, returns), [users, orders, returns]);
   const roleCards = [
     { to: '/user', icon: ShoppingBag, tone: 'commerce', title: 'User commerce', text: 'Shop products, track admin approval, receive OTP delivery, and request returns only after delivery.' },
@@ -1767,7 +1780,7 @@ function DeliveryProofPreview({ order, large = false }) {
 
 function UserReturns() {
   const [orders] = useLocalState(ORDERS_KEY, []);
-  const [returns] = useLocalState(RETURNS_KEY, []);
+  const [returns, setReturns] = useLocalState(RETURNS_KEY, []);
   const [active] = useLocalState(ACTIVE_USER_KEY, null);
   if (!active) return <Navigate to="/user/login" />;
   const myOrders = orders.filter((order) => order.userId === active.id);
@@ -1810,6 +1823,7 @@ function UserReturns() {
 function ReturnRequestPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const submitReturnRef = useRef(false);
   const [orders, setOrders] = useLocalState(ORDERS_KEY, []);
   const [returns, setReturns] = useLocalState(RETURNS_KEY, []);
   const [active] = useLocalState(ACTIVE_USER_KEY, null);
@@ -1849,6 +1863,8 @@ function ReturnRequestPage() {
   const submit = (event) => {
     event?.preventDefault?.();
     event?.stopPropagation?.();
+    if (submitReturnRef.current) return;
+    submitReturnRef.current = true;
     const finalRequest = {
       ...request,
       receiptId: bill.receiptId,
@@ -1859,27 +1875,66 @@ function ReturnRequestPage() {
     };
     const result = finalRequest.reverseImageMatch ? reverseImageRejectResult(finalRequest.reverseLookup) : (foodReturn ? foodLiveReturnResult(finalRequest.liveCaptureAnalysis) : pendingReturnResult());
     const rejectedBeforePickup = request.reverseImageMatch || result.decision === 'Reject / Investigate';
-    const foodApproved = foodReturn && result.decision === 'Refund Approved';
+    const foodProofPassed = foodReturn && result.decision === 'Food Proof Passed - Awaiting Approval';
+    const storedRequest = {
+      ...finalRequest,
+      issuePhotoPreview: compactImageData(finalRequest.issuePhotoPreview),
+      liveCaptureAnalysis: finalRequest.liveCaptureAnalysis ? {
+        ...finalRequest.liveCaptureAnalysis,
+        capturedImage: compactImageData(finalRequest.liveCaptureAnalysis.capturedImage),
+        recordedVideoDataUrl: compactImageData(finalRequest.liveCaptureAnalysis.recordedVideoDataUrl, 900000),
+        recordedVideoUrl: finalRequest.liveCaptureAnalysis.recordedVideoDataUrl ? '' : finalRequest.liveCaptureAnalysis.recordedVideoUrl
+      } : null
+    };
     const returnCase = {
       id: `RET-${Date.now()}`,
       orderId: order.id,
       productId: product.id,
       customer: order.customer,
       location: order.location,
-      request: finalRequest,
+      request: storedRequest,
       result,
       createdAt: nowStamp(),
-      status: rejectedBeforePickup ? 'Return rejected before pickup' : foodApproved ? 'Refund approved - within 12 hours' : foodReturn ? 'Additional verification required - contact support' : 'Partner visit requested'
+      status: rejectedBeforePickup ? 'Return rejected before pickup' : foodProofPassed ? 'Food proof submitted - waiting for admin and ZippGo approval' : foodReturn ? 'Additional verification required - contact support' : 'Partner visit requested'
     };
     const currentReturns = Array.isArray(readStore(RETURNS_KEY, [])) ? readStore(RETURNS_KEY, []) : [];
     const updatedReturns = [...currentReturns, returnCase];
-    writeStore(RETURNS_KEY, updatedReturns);
-    window.dispatchEvent(new CustomEvent('devx-store-change', { detail: { key: RETURNS_KEY, value: updatedReturns } }));
-    setReturns(updatedReturns);
-    if (foodApproved) {
-      setOrders((currentOrders) => currentOrders.map((item) => item.id === order.id ? { ...item, status: 'Returned', returnedAt: nowStamp(), refundStatus: 'Money will be refunded within 12 hours' } : item));
+    try {
+      writeStore(RETURNS_KEY, updatedReturns);
+      window.dispatchEvent(new CustomEvent('devx-store-change', { detail: { key: RETURNS_KEY, value: updatedReturns } }));
+      setReturns(updatedReturns);
+    } catch {
+      try {
+        const compactCase = {
+          ...returnCase,
+          request: {
+            reason: finalRequest.reason,
+            typedReason: finalRequest.typedReason,
+            receiptId: finalRequest.receiptId,
+            receiptHash: finalRequest.receiptHash,
+            billQrMatched: finalRequest.billQrMatched,
+            partnerVerificationPending: true,
+            liveCaptureDone: finalRequest.liveCaptureDone,
+            issuePhotoPreview: compactImageData(finalRequest.issuePhotoPreview),
+            liveCaptureAnalysis: finalRequest.liveCaptureAnalysis ? {
+              ...finalRequest.liveCaptureAnalysis,
+              capturedImage: compactImageData(finalRequest.liveCaptureAnalysis.capturedImage),
+              recordedVideoDataUrl: compactImageData(finalRequest.liveCaptureAnalysis.recordedVideoDataUrl, 900000),
+              recordedVideoUrl: ''
+            } : null
+          }
+        };
+        const compactReturns = [...currentReturns, compactCase];
+        writeStore(RETURNS_KEY, compactReturns);
+        window.dispatchEvent(new CustomEvent('devx-store-change', { detail: { key: RETURNS_KEY, value: compactReturns } }));
+        setReturns(compactReturns);
+      } catch {
+        submitReturnRef.current = false;
+        notify('Return request could not be saved. Clear old demo data and try again.');
+        return;
+      }
     }
-    notify(rejectedBeforePickup ? 'Return proof rejected before pickup.' : foodApproved ? 'Food return approved. Money will be refunded within 12 hours.' : (foodReturn ? 'Food return needs additional verification. Please contact support.' : returnCase.status));
+    notify(rejectedBeforePickup ? 'Return proof rejected before pickup.' : foodProofPassed ? 'Food video proof sent to admin and ZippGo for approval.' : (foodReturn ? 'Food return needs additional verification. Please contact support.' : returnCase.status));
     window.location.href = `/user/fraud-result/${returnCase.id}`;
   };
   return (
@@ -1888,7 +1943,7 @@ function ReturnRequestPage() {
         <section className="return-product"><img src={product.image} alt={product.name} /><div><h2>{product.name}</h2><strong>{money(product.price)}</strong><span>{product.price > 20000 ? 'High value item - extra verification' : 'Standard product rules'}</span></div></section>
         <section className="form-card wide">
           <h1>Request return</h1>
-          <p>{foodReturn ? 'Tell us why you want to return this food item. Food returns must use app-only video proof first. If the same-product and live-proof checks pass, the refund is approved directly within 12 hours.' : 'Tell us why you want to return this delivered product. After you submit, a ZippGo delivery partner visits your location and confirms the product details before pickup.'}</p>
+          <p>{foodReturn ? 'Tell us why you want to return this food item. Food returns must use app-only video proof first. If the same-product and live-proof checks pass, the video is sent to admin and ZippGo for approval before refund starts.' : 'Tell us why you want to return this delivered product. After you submit, a ZippGo delivery partner visits your location and confirms the product details before pickup.'}</p>
           <section className="policy-card inline-policy">
             <h2>{dynamicPolicy.family} return policy</h2>
             <div className="policy-pill-row"><span>{dynamicPolicy.window}</span><span>{policy.risk} wardrobing risk</span><span>{foodReturn ? 'App video proof required' : 'Partner proof required'}</span></div>
@@ -1933,9 +1988,9 @@ function ReturnRequestPage() {
           )}
           <div className="pending-check">
             <Truck size={18} />
-            <span>{foodReturn ? 'If the camera, motion, torch, screen-fake, and same-product checks pass, money will be refunded within 12 hours. If anything is unclear, contact support for verification.' : 'After submission, ZippGo will send a delivery partner to your location. Product detail verification will appear after the partner confirms the return.'}</span>
+            <span>{foodReturn ? 'If the camera, motion, torch, screen-fake, and same-product checks pass, the proof video is sent to admin and ZippGo. Refund starts only after approval.' : 'After submission, ZippGo will send a delivery partner to your location. Product detail verification will appear after the partner confirms the return.'}</span>
           </div>
-          <a href="/user/returns" className="primary force-click" onMouseDown={submit} onTouchStart={submit} onClick={submit}>Submit return request</a>
+          <button type="button" className="primary force-click return-submit-button" onPointerDown={submit} onMouseDown={submit} onTouchStart={submit} onClick={submit}>Submit return request</button>
         </section>
       </main>
     </PortalShell>
@@ -2034,7 +2089,7 @@ function LiveFoodReturnCapture({ product, onComplete }) {
   const recordVideoClip = (durationMs = 2800) => new Promise((resolve) => {
     const stream = streamRef.current;
     if (!stream || typeof MediaRecorder === 'undefined') {
-      resolve('');
+      resolve({ url: '', dataUrl: '', size: 0 });
       return;
     }
     recordedChunksRef.current = [];
@@ -2046,7 +2101,19 @@ function LiveFoodReturnCapture({ product, onComplete }) {
     };
     recorder.onstop = () => {
       const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'video/webm' });
-      resolve(blob.size ? URL.createObjectURL(blob) : '');
+      if (!blob.size) {
+        resolve({ url: '', dataUrl: '', size: 0 });
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      if (blob.size > 900000) {
+        resolve({ url, dataUrl: '', size: blob.size });
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => resolve({ url, dataUrl: String(reader.result || ''), size: blob.size });
+      reader.onerror = () => resolve({ url, dataUrl: '', size: blob.size });
+      reader.readAsDataURL(blob);
     };
     recorder.start();
     window.setTimeout(() => {
@@ -2189,7 +2256,7 @@ function LiveFoodReturnCapture({ product, onComplete }) {
       reason: reverseImageMatch ? 'Reverse image lookup found a matching online/screen video signature.' : 'No public online match found.'
     };
     const riskScore = Math.min(100, (metadataIssue ? 20 : 0) + (!motionOk ? 30 : 0) + (!torchOk ? 15 : 0) + (!durationOk ? 10 : 0) + (!productMatchOk ? 45 : 0) + (screenDetected ? 40 : 0) + (deepfakeSuspected || reverseImageMatch ? 100 : 0));
-    const decision = deepfakeSuspected || reverseImageMatch ? 'Reject / Investigate' : (riskScore <= 30 && productMatchOk ? 'Refund Approved' : riskScore <= 70 ? 'Additional Verification Required' : 'Manual Review Required');
+    const decision = deepfakeSuspected || reverseImageMatch ? 'Reject / Investigate' : (riskScore <= 30 && productMatchOk ? 'Food Proof Passed - Awaiting Approval' : riskScore <= 70 ? 'Additional Verification Required' : 'Manual Review Required');
     return {
       capturedImage: frames[Math.min(1, frames.length - 1)].image,
       timestamp,
@@ -2243,9 +2310,9 @@ function LiveFoodReturnCapture({ product, onComplete }) {
     await new Promise((resolve) => setTimeout(resolve, 700));
     frames.push(grabFrame());
     const durationMs = Date.now() - start;
-    const videoUrl = await videoPromise;
-    setRecordedVideoUrl(videoUrl);
-    const result = { ...analyzeFrames(frames, { challenge: activeChallenge, torchOn, torchSupported, durationMs }), recordedVideoUrl: videoUrl };
+    const videoProof = await videoPromise;
+    setRecordedVideoUrl(videoProof.url);
+    const result = { ...analyzeFrames(frames, { challenge: activeChallenge, torchOn, torchSupported, durationMs }), recordedVideoUrl: videoProof.url, recordedVideoDataUrl: videoProof.dataUrl, recordedVideoSize: videoProof.size };
     setAnalysis(result);
     setRecording(false);
     setLoading(false);
@@ -2303,9 +2370,9 @@ function LiveFoodReturnCapture({ product, onComplete }) {
           </div>
           <div>
             <h3>{analysis.decision}</h3>
-            {analysis.decision === 'Refund Approved' && (
+            {analysis.decision === 'Food Proof Passed - Awaiting Approval' && (
               <div className="refund-success-note">
-                Money will be refunded within 12 hours. If it is not received, contact support.
+                Video proof passed. It is now sent to admin and ZippGo; refund starts only after approval.
               </div>
             )}
             <div className="food-check-grid">
@@ -2570,6 +2637,41 @@ function AdminDashboard() {
     setOrders(saved.updatedOrders);
     notify('Order confirmed by admin. Sent to delivery partner.');
   };
+  const approveFoodRefund = (returnId, event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const currentReturns = Array.isArray(readStore(RETURNS_KEY, [])) ? readStore(RETURNS_KEY, []) : returns;
+    const target = currentReturns.find((item) => item.id === returnId);
+    if (!target) {
+      notify('Return case could not be found.');
+      return;
+    }
+    const approvedAt = nowStamp();
+    const updatedReturns = currentReturns.map((item) => item.id === returnId ? {
+      ...item,
+      status: 'Refund approved by admin - within 12 hours',
+      adminDecision: 'Approved',
+      adminApprovedAt: approvedAt,
+      result: {
+        ...(item.result || {}),
+        score: 0,
+        level: 'Low',
+        tone: 'good',
+        decision: 'Refund Approved',
+        explanation: 'Admin approved the food return video proof. Refund will be initiated within 12 hours.',
+        triggeredConditions: ['Food return video proof reviewed and approved by admin.']
+      }
+    } : item);
+    const currentOrders = Array.isArray(readStore(ORDERS_KEY, [])) ? readStore(ORDERS_KEY, []) : orders;
+    const updatedOrders = currentOrders.map((order) => order.id === target.orderId ? { ...order, status: 'Returned', returnedAt: approvedAt, refundStatus: 'Money will be refunded within 12 hours' } : order);
+    writeStore(RETURNS_KEY, updatedReturns);
+    writeStore(ORDERS_KEY, updatedOrders);
+    window.dispatchEvent(new CustomEvent('devx-store-change', { detail: { key: RETURNS_KEY, value: updatedReturns } }));
+    window.dispatchEvent(new CustomEvent('devx-store-change', { detail: { key: ORDERS_KEY, value: updatedOrders } }));
+    setReturns(updatedReturns);
+    setOrders(updatedOrders);
+    notify('Food refund approved. Refund will be initiated within 12 hours.');
+  };
   return (
     <PortalShell type="admin">
       <main>
@@ -2585,10 +2687,11 @@ function AdminDashboard() {
           <Stat icon={ShieldCheck} label="Return cases" value={returns.length} />
         </section>
         <AdminOrderApprovals orders={pendingAdmin} onConfirm={confirmOrder} />
+        <AdminOrderStatusTable orders={orders} />
         <AdminOrderProofLookup orders={orders} />
         <AdminBillQrPanel orders={orders} />
         <section className="charts"><Chart title="User risk split" rows={[['Good', good || 1], ['Medium', medium || 1], ['Fraud', fraudUsers || 1]]} /><Chart title="Order status" rows={[['Waiting', waiting || 1], ['Delivered', received || 1], ['Returns', returns.length || 1]]} /></section>
-        <AdminTable returns={returns} orders={orders} />
+        <AdminTable returns={returns} orders={orders} onApproveFoodRefund={approveFoodRefund} />
       </main>
     </PortalShell>
   );
@@ -2658,6 +2761,52 @@ function AdminOrderApprovals({ orders, onConfirm }) {
   );
 }
 
+function AdminOrderStatusTable({ orders }) {
+  return (
+    <section className="table-wrap admin-order-status">
+      <div className="section-head compact-head">
+        <div>
+          <h2>Customer orders and delivery status</h2>
+          <span>Admin can see who ordered each product and where the delivery currently stands.</span>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Order ID</th>
+            <th>Customer</th>
+            <th>Phone</th>
+            <th>Product</th>
+            <th>Payment</th>
+            <th>Location</th>
+            <th>Delivery Status</th>
+            <th>Placed At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((order) => {
+            const product = findCatalogProduct(order.productId);
+            const status = orderDisplayStatus(order);
+            return (
+              <tr key={order.id}>
+                <td>{order.id}</td>
+                <td>{order.customer || 'Customer'}</td>
+                <td>{maskPhone(order.phone)}</td>
+                <td>{product?.name || order.productId}</td>
+                <td>{order.payment}</td>
+                <td>{order.location}</td>
+                <td><span className={status === 'Delivered' ? 'status-pill good' : 'status-pill'}>{status}</span></td>
+                <td>{order.placedAt || '-'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {!orders.length && <p>No customer orders yet.</p>}
+    </section>
+  );
+}
+
 function AdminBillQrPanel({ orders }) {
   const tracked = orders.slice(-6).reverse();
   return (
@@ -2691,7 +2840,7 @@ function DeliveryDashboard({ returnsMode = false }) {
   const [orders, setOrders] = useLocalState(ORDERS_KEY, []);
   const [returns, setReturns] = useLocalState(RETURNS_KEY, []);
   const deliveryTasks = orders.filter((order) => !isDeliveredOrder(order) && (order.status === 'Waiting for delivery partner' || order.status === 'Out for delivery'));
-  const returnTasks = returns.filter((item) => item.status === 'Partner visit requested');
+  const returnTasks = returns.filter((item) => item.status === 'Partner visit requested' || item.status === 'Food proof submitted - waiting for admin and ZippGo approval');
   const tasks = returnsMode ? returnTasks : deliveryTasks;
   return (
     <PortalShell type="delivery">
@@ -2725,6 +2874,7 @@ function DeliveryDashboard({ returnsMode = false }) {
 
 function DeliveryTask({ task, order, product, returnsMode, setOrders, orders, setReturns, returnsList }) {
   const deliveryFinishRef = useRef(false);
+  const returnFinishRef = useRef(false);
   const [form, setForm] = useState({
     otp: '',
     productType: normalizeCategory(product?.category || 'Electronics'),
@@ -2813,17 +2963,33 @@ function DeliveryTask({ task, order, product, returnsMode, setOrders, orders, se
       window.location.href = '/delivery';
     }, 80);
   };
-  const completeReturn = (approved = returnOk) => {
-    if (approved && !returnOtpVerified) {
-      notify('Return pickup OTP must match the original delivery OTP.');
-      return;
-    }
-    if (approved && !returnOk) {
-      notify('Complete product match, photo, and category checks before approving return.');
-      return;
-    }
+  const completeReturn = (approved = returnOk, event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (returnFinishRef.current) return;
+    returnFinishRef.current = true;
+    const storedDeliveryPhoto = getStoredDeliveryPhoto(order, product);
+    const compactReturnPhoto = compactImageData(form.returnPhotoPreview);
     const partnerRequest = {
-      ...task.request,
+      reason: task.request?.reason || 'Return requested',
+      typedReason: task.request?.typedReason || '',
+      receiptId: task.request?.receiptId || order.receiptId,
+      receiptHash: task.request?.receiptHash || order.receiptHash,
+      billQrValue: task.request?.billQrValue || order.billQrValue,
+      uploadedBillQrValue: task.request?.uploadedBillQrValue,
+      billQrMatched: task.request?.billQrMatched,
+      uploadedBillQrImageName: task.request?.uploadedBillQrImageName,
+      liveCaptureDone: task.request?.liveCaptureDone,
+      liveCaptureAnalysis: task.request?.liveCaptureAnalysis ? {
+        status: task.request.liveCaptureAnalysis.status,
+        riskScore: task.request.liveCaptureAnalysis.riskScore,
+        decision: task.request.liveCaptureAnalysis.decision,
+        productMatchConfidence: task.request.liveCaptureAnalysis.productMatchConfidence,
+        productMatchReason: task.request.liveCaptureAnalysis.productMatchReason,
+        capturedImage: compactImageData(task.request.liveCaptureAnalysis.capturedImage),
+        recordedVideoDataUrl: compactImageData(task.request.liveCaptureAnalysis.recordedVideoDataUrl, 900000),
+        recordedVideoUrl: task.request.liveCaptureAnalysis.recordedVideoDataUrl ? '' : task.request.liveCaptureAnalysis.recordedVideoUrl
+      } : null,
       partnerVerificationPending: false,
       visualResult: form.visualResult,
       productMatches: form.productMatches,
@@ -2839,16 +3005,27 @@ function DeliveryTask({ task, order, product, returnsMode, setOrders, orders, se
       colorMismatch: form.colourMatches === 'No',
       reverseImageMatch: form.reverseImageMatch,
       reverseLookup: form.reverseLookup,
-      returnPhoto: form.returnPhotoPreview || product.image,
-      deliveryComparisonPhoto: form.returnComparisonPreview || order.deliveryProof?.deliveryPhoto || product.image,
-      imageQualityGood: returnOk,
+      returnPhoto: compactReturnPhoto,
+      deliveryComparisonPhoto: '',
+      imageQualityGood: approved ? true : returnOk,
       returnOtpVerified,
       duplicatePassed: true
     };
-    const result = form.reverseImageMatch ? reverseImageRejectResult(form.reverseLookup) : calculateFraudRisk({ product, order, proof: order.deliveryProof, returnRequest: partnerRequest });
-    const partnerCancelled = !approved || form.reverseImageMatch;
+    const baseResult = form.reverseImageMatch ? reverseImageRejectResult(form.reverseLookup) : calculateFraudRisk({ product, order, proof: order.deliveryProof, returnRequest: partnerRequest });
+    const result = approved && isFoodProduct(product) && !form.reverseImageMatch ? {
+      ...baseResult,
+      score: 0,
+      level: 'Low',
+      decision: 'Refund Approved',
+      tone: 'good',
+      explanation: 'Food proof video was verified and approved by ZippGo. Refund will be initiated within 12 hours.',
+      triggeredConditions: ['Customer app-only video proof sent to delivery partner and approved.']
+    } : baseResult;
+    const partnerCancelled = !approved;
     const partnerDecision = partnerCancelled ? 'Cancelled' : 'Accepted';
-    const status = partnerCancelled
+    const status = approved && isFoodProduct(product) && !form.reverseImageMatch
+      ? 'Refund approved by ZippGo - within 12 hours'
+      : partnerCancelled
       ? 'Return closed - cancelled by delivery partner'
       : result.decision === 'Reject / Investigate'
         ? 'Return closed - sent for investigation'
@@ -2860,26 +3037,86 @@ function DeliveryTask({ task, order, product, returnsMode, setOrders, orders, se
       status,
       partnerDecision,
       closedAt: nowStamp(),
-      pickupStatus: form.reverseImageMatch ? 'Return rejected automatically because reverse image lookup matched an online source' : (approved ? 'Return approved after pickup verification' : 'Return closed and cleared from pickup queue because image/check verification failed'),
+      pickupStatus: form.reverseImageMatch ? 'Return rejected automatically because reverse image lookup matched an online source' : (approved && isFoodProduct(product) ? 'Food video proof approved by ZippGo. Refund will be initiated within 12 hours.' : (approved ? 'Return approved after pickup verification' : 'Return closed and cleared from pickup queue because image/check verification failed')),
       deliveryPartnerChecks: {
-        ...form,
-        returnPhoto: form.returnPhotoPreview || product.image,
-        deliveryComparisonPhoto: form.returnComparisonPreview || order.deliveryProof?.deliveryPhoto || product.image
+        productType: form.productType,
+        productMatches: form.productMatches,
+        noDamage: form.noDamage,
+        noStains: form.noStains,
+        visualResult: form.visualResult,
+        tagCondition: form.tagCondition,
+        after24Hours: form.after24Hours,
+        serialMatches: form.serialMatches,
+        usageHigh: form.usageHigh,
+        scratchesOrDirt: form.scratchesOrDirt,
+        colourMatches: form.colourMatches,
+        reverseLookup: form.reverseLookup,
+        reverseImageMatch: form.reverseImageMatch,
+        returnPhoto: compactReturnPhoto,
+        deliveryComparisonPhoto: ''
       }
     };
     const currentReturns = Array.isArray(readStore(RETURNS_KEY, [])) ? readStore(RETURNS_KEY, []) : returnsList;
     const updatedReturns = currentReturns.map((item) => item.id === task.id ? updatedReturnCase : item);
-    writeStore(RETURNS_KEY, updatedReturns);
-    window.dispatchEvent(new CustomEvent('devx-store-change', { detail: { key: RETURNS_KEY, value: updatedReturns } }));
-    setReturns(updatedReturns);
-    if (approved && !form.reverseImageMatch) {
-      const currentOrders = Array.isArray(readStore(ORDERS_KEY, [])) ? readStore(ORDERS_KEY, []) : orders;
-      const updatedOrders = currentOrders.map((item) => item.id === order.id ? { ...item, status: 'Returned', returnedAt: nowStamp(), returnApproved: true } : item);
-      writeStore(ORDERS_KEY, updatedOrders);
-      window.dispatchEvent(new CustomEvent('devx-store-change', { detail: { key: ORDERS_KEY, value: updatedOrders } }));
-      setOrders(updatedOrders);
+    try {
+      writeStore(RETURNS_KEY, updatedReturns);
+      window.dispatchEvent(new CustomEvent('devx-store-change', { detail: { key: RETURNS_KEY, value: updatedReturns } }));
+      setReturns(updatedReturns);
+      if (approved && !form.reverseImageMatch) {
+        const currentOrders = Array.isArray(readStore(ORDERS_KEY, [])) ? readStore(ORDERS_KEY, []) : orders;
+        const updatedOrders = currentOrders.map((item) => item.id === order.id ? { ...item, status: 'Returned', returnedAt: nowStamp(), returnApproved: true } : item);
+        writeStore(ORDERS_KEY, updatedOrders);
+        window.dispatchEvent(new CustomEvent('devx-store-change', { detail: { key: ORDERS_KEY, value: updatedOrders } }));
+        setOrders(updatedOrders);
+      }
+    } catch {
+      try {
+        const minimalReturnCase = {
+          id: task.id,
+          orderId: task.orderId,
+          productId: task.productId,
+          customer: task.customer,
+          location: task.location,
+          request: {
+            reason: partnerRequest.reason,
+            typedReason: partnerRequest.typedReason,
+            visualResult: partnerRequest.visualResult,
+            productMatches: partnerRequest.productMatches,
+            returnOtpVerified: partnerRequest.returnOtpVerified
+          },
+          result,
+          status,
+          partnerDecision,
+          closedAt: nowStamp(),
+          pickupStatus: approved ? 'Return approved after pickup verification' : 'Return cancelled by delivery partner',
+          deliveryPartnerChecks: {
+            visualResult: form.visualResult,
+            productMatches: form.productMatches,
+            noDamage: form.noDamage,
+            noStains: form.noStains
+          }
+        };
+        const minimalReturns = currentReturns.map((item) => item.id === task.id ? minimalReturnCase : item);
+        writeStore(RETURNS_KEY, minimalReturns);
+        window.dispatchEvent(new CustomEvent('devx-store-change', { detail: { key: RETURNS_KEY, value: minimalReturns } }));
+        setReturns(minimalReturns);
+        if (approved && !form.reverseImageMatch) {
+          const currentOrders = Array.isArray(readStore(ORDERS_KEY, [])) ? readStore(ORDERS_KEY, []) : orders;
+          const updatedOrders = currentOrders.map((item) => item.id === order.id ? { ...item, status: 'Returned', returnedAt: nowStamp(), returnApproved: true } : item);
+          writeStore(ORDERS_KEY, updatedOrders);
+          window.dispatchEvent(new CustomEvent('devx-store-change', { detail: { key: ORDERS_KEY, value: updatedOrders } }));
+          setOrders(updatedOrders);
+        }
+      } catch {
+        returnFinishRef.current = false;
+        notify('Return action could not be saved. Clear old browser storage and try again.');
+        return;
+      }
     }
     notify(form.reverseImageMatch ? 'Reverse image match found. Return rejected automatically.' : (approved ? 'Return approved and cleared from pickup queue' : 'Return cancelled, closed, and cleared from pickup queue'));
+    window.setTimeout(() => {
+      window.location.href = '/delivery/returns';
+    }, 80);
   };
   useEffect(() => {
     if (!returnsMode || !form.reverseImageMatch || form.reverseAutoClosed) return;
@@ -2899,8 +3136,8 @@ function DeliveryTask({ task, order, product, returnsMode, setOrders, orders, se
           {!returnsMode && !deliveryOk && <span className="policy-note">Enter all delivery details: {deliveryRequiredMissing.join(', ')}.</span>}
           {!returnsMode && deliveryOk && <span className="policy-note">OTP and delivery images are complete. Tap Continue to finish delivery.</span>}
           {returnsMode && <>
-            <button className="primary" disabled={!returnOk} onClick={() => completeReturn(true)}>Approve return</button>
-            <button className="secondary" onClick={() => completeReturn(false)}>Cancel return</button>
+            <button type="button" className="primary force-click return-action-button" onPointerDown={(event) => completeReturn(true, event)} onMouseDown={(event) => completeReturn(true, event)} onTouchStart={(event) => completeReturn(true, event)} onClick={(event) => completeReturn(true, event)}>Approve return</button>
+            <button type="button" className="secondary force-click return-action-button" onPointerDown={(event) => completeReturn(false, event)} onMouseDown={(event) => completeReturn(false, event)} onTouchStart={(event) => completeReturn(false, event)} onClick={(event) => completeReturn(false, event)}>Cancel return</button>
           </>}
         </div>
       </div>
@@ -2927,6 +3164,7 @@ function DeliveryPartnerChecks({ product, order, form, setForm, otpVerified, onS
 function ReturnPartnerChecks({ product, order, task, form, setForm, returnOtpVerified }) {
   const checklist = getPickupChecklist(product);
   const productFamily = getDynamicReturnPolicy(product).family;
+  const storedDeliveryPhoto = getStoredDeliveryPhoto(order, product);
   return (
     <div className="mock-checks">
       <div className="otp-verify">
@@ -2937,7 +3175,11 @@ function ReturnPartnerChecks({ product, order, task, form, setForm, returnOtpVer
       <div className={returnOtpVerified ? 'status-pill good' : 'status-pill danger'}>{returnOtpVerified ? 'Return OTP matched' : 'Return OTP not matched'}</div>
       {task.request?.liveCaptureAnalysis && (
         <section className="customer-proof-summary">
-          <img src={task.request.issuePhotoPreview || task.request.liveCaptureAnalysis.capturedImage || product.image} alt="Customer live return proof" />
+          {task.request.liveCaptureAnalysis.recordedVideoDataUrl || task.request.liveCaptureAnalysis.recordedVideoUrl ? (
+            <video className="customer-proof-video" src={task.request.liveCaptureAnalysis.recordedVideoDataUrl || task.request.liveCaptureAnalysis.recordedVideoUrl} controls muted playsInline />
+          ) : (
+            <img src={task.request.issuePhotoPreview || task.request.liveCaptureAnalysis.capturedImage || product.image} alt="Customer live return proof" />
+          )}
           <div>
             <strong>Customer video proof sent to delivery partner</strong>
             <span>{task.result?.decision} · Same-product confidence {task.request.liveCaptureAnalysis.productMatchConfidence || 0}%</span>
@@ -2947,7 +3189,10 @@ function ReturnPartnerChecks({ product, order, task, form, setForm, returnOtpVer
       )}
       {order.sellerProof && <SellerProofPreview order={order} product={product} />}
       <section className="compare partner-compare">
-        <figure><img src={order.deliveryProof?.deliveryPhoto || product.image} alt="Stored delivery proof" /><figcaption>Stored delivery image</figcaption></figure>
+        <figure>
+          {storedDeliveryPhoto ? <img src={storedDeliveryPhoto} alt="Stored delivery proof" /> : <div className="missing-proof">No uploaded delivery photo found</div>}
+          <figcaption>Stored delivery image</figcaption>
+        </figure>
         <figure><img src={form.returnPhotoPreview || product.image} alt="Return upload preview" /><figcaption>Return product image</figcaption></figure>
       </section>
       <section className="pickup-checklist">
@@ -2965,7 +3210,7 @@ function ReturnPartnerChecks({ product, order, task, form, setForm, returnOtpVer
         </div>
       )}
       <section className="customer-proof-summary">
-        <img src={order.deliveryProof?.deliveryPhoto || product.image} alt="Stored delivery product proof" />
+        {storedDeliveryPhoto ? <img src={storedDeliveryPhoto} alt="Stored delivery product proof" /> : <div className="missing-proof compact">No uploaded delivery photo found</div>}
         <div>
           <strong>Delivery product photo loaded automatically</strong>
           <span>This is the photo uploaded by the delivery partner during delivery.</span>
@@ -3001,19 +3246,20 @@ function YesNo({ label, value, onChange }) {
   );
 }
 
-function AdminTable({ returns, orders }) {
+function AdminTable({ returns, orders, onApproveFoodRefund }) {
   const rows = returns.length ? returns : [];
   return (
     <section className="table-wrap">
       <h2>Return and fraud cases</h2>
       <table>
-        <thead><tr><th>Order ID</th><th>Customer</th><th>Product</th><th>Delivery proof</th><th>Return proof</th><th>Location</th><th>Risk</th><th>Fraud type</th><th>Triggered reason</th><th>Decision</th></tr></thead>
+        <thead><tr><th>Order ID</th><th>Customer</th><th>Product</th><th>Delivery proof</th><th>Return proof</th><th>Food video</th><th>Location</th><th>Risk</th><th>Fraud type</th><th>Triggered reason</th><th>Decision</th><th>Action</th></tr></thead>
         <tbody>
           {rows.map((row) => {
             const order = orders.find((item) => item.id === row.orderId);
             const product = findCatalogProduct(row.productId);
-            const deliveryPhoto = order?.deliveryProof?.deliveryPhoto || row.request?.deliveryComparisonPhoto || product?.image;
-            const returnPhoto = row.request?.returnPhoto || row.deliveryPartnerChecks?.returnPhoto || product?.image;
+            const deliveryPhoto = order?.deliveryProof?.deliveryPhoto || row.request?.deliveryComparisonPhoto || '';
+            const returnPhoto = row.request?.returnPhoto || row.deliveryPartnerChecks?.returnPhoto || '';
+            const foodAwaitingApproval = isFoodProduct(product) && row.status === 'Food proof submitted - waiting for admin and ZippGo approval';
             return (
               <tr key={row.id}>
                 <td>{row.orderId}</td>
@@ -3021,11 +3267,13 @@ function AdminTable({ returns, orders }) {
                 <td>{product?.name}</td>
                 <td><EvidenceThumb src={deliveryPhoto} label="Delivery image" /></td>
                 <td><EvidenceThumb src={returnPhoto} label="Return image" /></td>
+                <td><FoodVideoEvidence analysis={row.request?.liveCaptureAnalysis} /></td>
                 <td>{row.location}</td>
                 <td>{row.result.pending ? 'Pending' : row.result.score}</td>
                 <td>{row.result.fraudTypeText || 'No fraud type detected'}</td>
                 <td>{row.result.triggeredConditions?.[0] || row.request.reason}</td>
                 <td>{row.status || row.result.decision}</td>
+                <td>{foodAwaitingApproval ? <button type="button" className="primary small force-click" onClick={(event) => onApproveFoodRefund?.(row.id, event)}>Approve refund</button> : <span className="status-pill">{row.adminDecision || row.partnerDecision || 'No action'}</span>}</td>
               </tr>
             );
           })}
@@ -3039,8 +3287,25 @@ function AdminTable({ returns, orders }) {
 function EvidenceThumb({ src, label }) {
   return (
     <figure className="admin-proof-thumb">
-      <img src={src} alt={label} />
+      {src ? <img src={src} alt={label} /> : <div className="missing-proof tiny">No uploaded image</div>}
       <figcaption>{label}</figcaption>
+    </figure>
+  );
+}
+
+function FoodVideoEvidence({ analysis }) {
+  if (!analysis) return <div className="missing-proof tiny">No food video</div>;
+  const videoSrc = analysis.recordedVideoDataUrl || analysis.recordedVideoUrl || '';
+  return (
+    <figure className="admin-proof-thumb">
+      {videoSrc ? (
+        <video className="admin-proof-video" src={videoSrc} controls muted playsInline />
+      ) : analysis.capturedImage ? (
+        <img src={analysis.capturedImage} alt="Food video proof frame" />
+      ) : (
+        <div className="missing-proof tiny">Video metadata only</div>
+      )}
+      <figcaption>{analysis.decision || analysis.riskLevel || 'Food proof'}</figcaption>
     </figure>
   );
 }

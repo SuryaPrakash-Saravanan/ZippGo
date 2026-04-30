@@ -317,6 +317,7 @@ h1, h2, h3 { font-weight: 950; text-wrap: balance; }
   touch-action: manipulation;
 }
 .force-click { position: relative; z-index: 999; pointer-events: auto; touch-action: manipulation; }
+.return-action-button { min-width: 160px; cursor: pointer; user-select: none; }
 .checkout > .stack { position: relative; z-index: 1; min-width: 0; }
 .auth-page { display: grid; place-items: center; min-height: 78vh; }
 .auth-page .form-card { width: min(520px, 100%); padding: clamp(30px, 5vw, 44px); gap: 18px; }
@@ -368,6 +369,10 @@ h1, h2, h3 { font-weight: 950; text-wrap: balance; }
 .otp-verify button { justify-self: start; }
 .customer-proof-summary { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; align-items: center; grid-column: 1 / -1; border: 1px solid rgba(34,211,238,.28); border-radius: 8px; padding: 12px; background: rgba(34,211,238,.08); }
 .customer-proof-summary img { width: 112px; height: 82px; object-fit: cover; border-radius: 8px; border: 1px solid rgba(34,211,238,.22); background: #05080d; }
+.customer-proof-video { width: 112px; height: 82px; object-fit: cover; border-radius: 8px; border: 1px solid rgba(34,211,238,.22); background: #05080d; }
+.missing-proof { min-height: 150px; display: grid; place-items: center; text-align: center; padding: 14px; border-radius: 8px; border: 1px dashed rgba(56,189,248,.38); background: rgba(14,165,233,.08); color: #7dd3fc; font-weight: 900; }
+.missing-proof.compact { width: 112px; min-height: 82px; font-size: .76rem; }
+.missing-proof.tiny { width: 92px; height: 68px; min-height: 68px; padding: 6px; font-size: .68rem; }
 .customer-proof-summary strong { display: block; color: #e0f7ff; }
 .customer-proof-summary span, .customer-proof-summary small { display: block; color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }
 [data-theme="light"] .customer-proof-summary { background: #eef8ff; border-color: rgba(14,165,233,.24); }
@@ -626,6 +631,7 @@ td { color: var(--muted); }
 .evidence-row strong { color: #effff9; line-height: 1.45; }
 .admin-proof-thumb { width: 92px; margin: 0; display: grid; gap: 6px; }
 .admin-proof-thumb img { width: 92px; height: 68px; object-fit: contain; border-radius: 8px; border: 1px solid rgba(114,240,200,.28); background: #070b0f; }
+.admin-proof-video { width: 92px; height: 68px; object-fit: cover; border-radius: 8px; border: 1px solid rgba(114,240,200,.28); background: #070b0f; }
 .admin-proof-thumb figcaption { color: #a7f3d0; font-size: .72rem; font-weight: 850; }
 
 .shopsphere-page { width: min(100% - 24px, 1420px); padding-bottom: 70px; }
