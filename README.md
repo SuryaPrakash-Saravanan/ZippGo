@@ -199,9 +199,77 @@ This prototype uses browser `localStorage` for:
 - Admin session
 - Theme preference
 
+- Demo Flow
+1. User Orders Product
+User logs in
+User selects product
+User clicks Buy Now
+User places order
+Order goes to admin confirmation
+2. Admin Confirms Order
+Admin opens admin portal
+Admin confirms order
+Order appears in delivery partner portal
+3. Delivery Partner Completes Delivery
+Delivery partner opens delivery portal
+Sends/verifies OTP
+Uploads product photo
+Completes delivery
+Customer order status becomes Delivered
+4. User Requests Return
+User opens returns page
+Selects delivered product
+Adds return reason
+Uploads required bill/proof
+For food, records app-only video proof
+Return case is sent for verification
+5. Return Verification
+For normal products:
+
+Delivery partner compares delivery image and return image
+Checks OTP
+Checks category-specific conditions
+Approves or cancels return
+For food:
+
+Video proof is sent to admin and delivery partner
+Refund starts only after approval
+Admin Password
+devxadmin
+Project Purpose
+This project is designed for hackathons and demonstrations. It shows how return fraud can be reduced by combining:
+
+Delivery proof
+OTP verification
+Product-specific return rules
+QR bill validation
+Image comparison
+Food video verification
+Seller fraud detection
+Admin approval workflows
+Future Improvements
+Real backend database
+Real OTP service
+Real QR scanning
+Real reverse image lookup API
+Real computer vision model
+Payment gateway integration
+Seller analytics
+Delivery tracking API
+
 ## Run Commands
 
 Install dependencies:
 
 ```bash
 npm install
+
+```
+```go to
+http://127.0.0.1:5173/
+'''
+
+
+
+
+
